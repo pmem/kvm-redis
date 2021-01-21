@@ -1,0 +1,27 @@
+name: benchmarking
+on:  [push, pull_request]
+
+jobs:
+  linux:
+    name: benchmarking
+    runs-on: ubuntu-latest
+    env:
+      HOST_WORKDIR:   /home/runner/work/benchmarking/benchmarking
+      LICENSE_TAG:    BSD-3-Clause
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install file -y
+
+      - name: Check license headers
+        run: $HOST_WORKDIR/utils/check_license/check-headers.sh $HOST_WORKDIR $LICENSE_TAG
+
+      - name: Run ansible linter
+        uses: ansible/ansible-lint-action@master
+        with:
+          args: "-p"
+          targets: $HOST_WORKDIR/ansible-playbook/
