@@ -1,0 +1,82 @@
+---
+- hosts: servers
+
+  pre_tasks:
+    - name: "Load playbook variables"
+      include_vars: "vars.yml"
+
+    - include_tasks: "include/discover-consul-data.yml"
+
+  tasks:
+    - name: "Check if virtualization is enabled in BIOS"
+      stat:
+        path: /dev/kvm
+      register: bios_virt
+
+    - block:
+        - include_tasks: "include/discover-libvirt-data.yml"
+
+        - name: "Destroy testcase vms"
+          virt:
+            name: "{{ item }}"
+            state: "destroyed"
+          loop: "{{ libvirt.vms }}"
+          when: item is search(testcase_name)
+
+        - name: "Undefine testcase vms"
+          virt:
+            name: "{{ item }}"
+            command: "undefine"
+          loop: "{{ libvirt.vms }}"
+          when: item is search(testcase_name)
+
+        - name: "Destroy testcase nat network"
+          virt_net:
+            name: "{{ item }}"
+            state: "absent"
+          loop: "{{ libvirt.nets }}"
+          when: item is search(testcase_name)
+
+        - name: "Clean working directories"
+          file:
+            path: "{{ item.NodeMeta.run_dir }}"
+            state: "absent"
+          loop: "{{ server_instances.json }}"
+          when: server_instances.json is defined
+
+      when: bios_virt.stat.exists
+
+    - name: "Remove dhcpd servers"
+      docker_container:
+        name: "dhcpd-{{ item }}"
+        force_kill: true
+        state: "absent"
+      loop: "{{ server_sockets | default([]) }}"
+
+    - name: "Remove auxiliary services"
+      docker_container:
+        name: "{{ item }}"
+        force_kill: true
+        state: "absent"
+      loop:
+        - "docker-registry"
+        - "consul-test-ui"
+        - "consul-test"
+        - "node-exporter"
+
+    - name: "Remove dhcpd directory"
+      file:
+        path: "{{ workdir }}/dhcpd"
+        state: "absent"
+
+    - block:
+        - name: "Remove auxiliary network interface"
+          shell: |
+            ip link del dhcp{{ item }}
+          tags:
+            - "skip_ansible_lint"
+          loop: "{{ server_sockets | default([]) }}"
+      when: "'dhcp'~item in ansible_interfaces
+              and (hostvars[inventory_hostname]['ansible_dhcp'~item]['ipv4'] is defined)"
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

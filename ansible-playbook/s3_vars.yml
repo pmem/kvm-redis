@@ -1,0 +1,12 @@
+---
+s3_access_key_default: "my_s3_access_key"
+s3_bucket_default: "my_s3_bucket"
+s3_endpoint_default: ""
+s3_region_default: "us-east-1"
+s3_secret_key_default: "my_s3_secret_key"
+
+s3_access_key: "{{ lookup('env', 'AWS_ACCESS_KEY') | default(s3_access_key_default, true) }}"
+s3_bucket: "{{ lookup('env', 'S3_BUCKET') | default(s3_bucket_default, true) }}"
+s3_endpoint: "{{ lookup('env', 'S3_ENDPOINT') | default(s3_endpoint_default, true) }}"
+s3_region: "{{ lookup('env', 'S3_REGION') | default(s3_region_default, true) }}"
+s3_secret_key: "{{ lookup('env', 'AWS_SECRET_KEY') | default(s3_secret_key_default, true) }}"

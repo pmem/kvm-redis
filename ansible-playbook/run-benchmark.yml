@@ -1,0 +1,336 @@
+---
+- hosts: localhost
+  gather_facts: true
+  tasks:
+    - name: "Mark benchmark run timestamp"
+      set_fact:
+        exec_stamp: "{{ ansible_date_time.epoch }}"
+        run_id: "{{ lookup('env', 'run_id') | default((99999999 | random | to_uuid | hash('md5'))[:8], true) }}"
+
+    - name: "Print run ID"
+      debug: var=run_id
+
+- hosts: all
+  tasks:
+    - name: "Fetch all facts"
+      setup: {}
+
+    - name: "Load playbook variables"
+      include_vars: "vars.yml"
+
+    - include_tasks: "include/discover-consul-data.yml"
+
+    - name: "Set kernel hmem short version"
+      command: uname -r
+      register: memtier_kernel_ver
+      delegate_to: "{{ groups['servers'][0] }}"
+      delegate_facts: true
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Get microcode version"
+      shell: dmesg | grep -E 'micro.*rev' | awk -F"=" '{print $4}'
+      register: microcode_ver
+      delegate_to: "{{ groups['servers'][0] }}"
+      delegate_facts: true
+      tags:
+        - "skip_ansible_lint"
+
+    - set_fact:
+        log_dir_structure: >-
+          "{{ test_tag }}/
+           {{ server_instances.json|length }}VMs-{{ ((server_instances.json|map(attribute='NodeMeta.memory')|list)[0]|int)//1048576 }}GiB/
+           {{ hostvars['localhost'].exec_stamp }}-{{ memtier_kernel_ver.stdout }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Create log dir"
+      file:
+        path: "{{ logdir }}/{{ log_dir_structure }}"
+        state: "directory"
+      become: true
+      register: runlogdir
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Create log subdirs"
+      file:
+        path: "{{ runlogdir.path }}/{{ item }}"
+        state: "directory"
+      become: true
+      tags:
+        - "skip_ansible_lint"
+      with_items:
+        - "Results"
+        - "VMSTAT"
+
+
+- hosts: servers
+  gather_facts: false
+  pre_tasks:
+    - name: "Prepare pre-os-stats"
+      set_fact:
+        os_stats_archive: "{{ runlogdir.path }}/VMSTAT/osstats-pre-redis-{{ hostvars['localhost'].exec_stamp }}.tar.gz"
+
+    - include_tasks: "include/get-os-stats.yml"
+
+  tasks:
+    - name: "Get server info"
+      shell: |
+        hostname -I |awk '{print "IP address: "$1}'
+        uname -a
+        cat /proc/cmdline
+        lscpu
+        free -h
+        swapon
+        numactl -H
+      register: server_info
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Save server info"
+      copy:
+        dest: "{{ runlogdir.path }}/Results/server_info.txt"
+        content: "{{ server_info.stdout }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - block:
+        - name: "Get server dimms info"
+          shell: |
+            ipmctl show -topology
+            ndctl list
+            daxctl list
+          register: dimms_info
+
+        - name: "Save dimms information"
+          copy:
+            dest: "{{ runlogdir.path }}/Results/dimms_info.txt"
+            content: "{{ dimms_info.stdout| to_nice_yaml }}"
+          tags:
+            - "skip_ansible_lint"
+
+      when: test_tag|lower != "dram"
+      ignore_errors: true
+
+
+- hosts: clients
+  gather_facts: false
+  pre_tasks:
+    - include_tasks: "include/discover-client-nics.yml"
+
+    - name: "Create client IP addresses"
+      shell: |
+        ip addr add {{ (item.1~'/24')|ipaddr('network')|ipmath(2) }}/24 dev {{ client_test_ifaces[item.0 % (client_test_ifaces|length)] }}; true
+      with_indexed_items: "{{ server_addresses }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - include_tasks: "include/discover-numa-topology.yml"
+
+  tasks:
+    - name: "Create benchmark log header"
+      copy:
+        dest: "{{ runlogdir.path }}/Results/memtier_benchmark-{{ item.Node }}.log"
+        content: "{{ item | to_nice_yaml }}"
+      with_items: "{{ server_instances.json }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Create run_id file"
+      copy:
+        dest: "{{ runlogdir.path }}/Results/run_id.txt"
+        content: "{{ hostvars['localhost'].run_id }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Run memtier_benchmark Redis tests"
+      docker_container:
+        name: "memtier-benchmark-test-{{ item.Node }}"
+        image: "{{ client_image }}"
+        command: >
+          --ratio={{ ratio_run }}
+          --data-size={{ data_size }}
+          --requests={{ requests }}
+          --key-pattern={{ key_pattern_run }}
+          --key-minimum={{ key_minimum }}
+          --key-maximum={{ key_maximum }}
+          --threads={{ threads }}
+          --pipeline={{ pipelines }}
+          --clients={{ clients }}
+          --run-count={{ run_count }}
+          --server={{ item.Address }}
+          --port={{ item.ServicePort }}
+          --print-percentiles {{ percentiles_list }}
+          --show-config
+          --out-file /log/memtier-benchmark-test-{{ item.Node }}.txt
+        auto_remove: true
+        network_mode: "host"
+        volumes:
+          - "{{ runlogdir.path }}/Results:/log"
+        cpuset_cpus: >-
+          "{{ (numacpus.results|map(attribute='stdout')|list)[(ipaddrnuma[item.Address]|int)|default(0)] if ipaddrnuma is defined
+           else cpuset_cpus_default }}"
+        cpuset_mems: "{{ ipaddrnuma[item.Address] if ipaddrnuma is defined else cpuset_mems_default }}"
+      with_items: "{{ server_instances.json }}"
+
+    - name: "Wait for memtier_benchmark to finish"
+      shell: |
+        docker ps --format {%raw%}"{{.Names}}"{%endraw%} -f ancestor={{ client_image }} |wc -l
+      args:
+        warn: false
+      tags:
+        - "skip_ansible_lint"
+      register: client_running
+      until: client_running.stdout|int == 0
+      retries: 10000
+      delay: 10
+
+    - pause:
+        seconds: 15
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Get finish stamp"
+      shell: |
+        date +'%s'
+      register: end_stamp_output
+      tags:
+        - "skip_ansible_lint"
+
+    - set_fact:
+        finish_stamp: "{{ end_stamp_output.stdout }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - set_fact:
+        what_to_grep: "ALL STATS"  # default value = "AGGREGATED"
+      when: run_count == "1"
+      tags:
+        - "skip_ansible_lint"
+
+    # yamllint disable rule:line-length
+    # yamllint disable rule:comments-indentation
+    - name: "Calculate total throughput and 99.99 GET latency"
+      shell: |
+        echo "Run_id: {{ hostvars['localhost'].run_id }}, timestamp: {{ hostvars['localhost'].exec_stamp }}" > benchmark_results_core_metrics.txt
+        echo "Total throughput for {{ server_instances.json|length }} VMs" >> benchmark_results_core_metrics.txt
+        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Totals | awk '{print $2}'); do echo $i; done | paste -sd+ | /usr/bin/bc >> benchmark_results_core_metrics.txt
+        echo "99.99 GET latency - best score:" >> benchmark_results_core_metrics.txt
+        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $9}'); do echo $i; done | sort --key 2 --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
+        echo "99.99 GET latency - average:" >> benchmark_results_core_metrics.txt
+        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $9}'); do echo $i; done | paste -sd+ | /usr/bin/bc | awk '{ total += $1} END { print total/{{ server_instances.json|length }} }' >> benchmark_results_core_metrics.txt
+        echo "99.98 GET latency - best score:" >> benchmark_results_core_metrics.txt
+        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $8}'); do echo $i; done | sort --key 2 --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
+        echo "99.97 GET latency - best score:" >> benchmark_results_core_metrics.txt
+        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $7}'); do echo $i; done | sort --key 2 --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
+      args:
+        chdir: "{{ runlogdir.path }}/Results"
+      tags:
+        - "skip_summaries"
+        - "skip_ansible_lint"
+    # yamllint enable rule:line-length
+    # yamllint enable rule:comments-indentation
+
+    - name: "Convert exec_stamp"
+      shell: |
+        date -d @{{ hostvars['localhost'].exec_stamp }} +"%d/%m/%Y %H:%M"
+      register: exec_stamp_output
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Convert finish_stamp"
+      shell: |
+        date -d @{{ finish_stamp }} +"%d/%m/%Y %H:%M"
+      register: finish_stamp_output
+      tags:
+        - "skip_ansible_lint"
+
+    - set_fact:
+        start_time: "{{ exec_stamp_output.stdout }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - set_fact:
+        end_time: "{{ finish_stamp_output.stdout }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Copy start-end times to file"
+      copy:
+        dest: "{{ runlogdir.path }}/Results/timestamps.txt"
+        content: "{{ start_time }} - {{ end_time }} \n {{ hostvars['localhost'].exec_stamp }} - {{ finish_stamp }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Create desc.json metadata file"
+      copy:
+        dest: "{{ runlogdir.path }}/Results/desc.json"
+        content: |
+          {
+          "rmeta_dataserie": "{{ test_tag }}-{{ hostvars['localhost'].run_id }}",
+          "rmeta_instance": "{{ groups['servers'][0] }}",
+          "rmeta_kernel": "{{ memtier_kernel_ver.stdout }}",
+          "rmeta_microcode": "{{ microcode_ver.stdout }}",
+          "rmeta_testcase": "{{ testcase_name }}",
+          "rmeta_nr_instances: "{{ server_instances.json|length }}",
+          "rmeta_vm_size: "{{ ((server_instances.json|map(attribute='NodeMeta.memory')|list)[0]|int)//1048576 }}GiB",
+          "rmeta_requests: "{{ requests }}",
+          "rmeta_timestamp": "{{ hostvars['localhost'].exec_stamp }}",
+          "rmeta_timestamp_end": "{{ finish_stamp }}"
+          }
+      tags:
+        - "skip_ansible_lint"
+
+  post_tasks:
+    - name: "Delete client IP addresses"
+      shell: |
+        ip addr del {{ (item.1~'/24')|ipaddr('network')|ipmath(2) }}/24 dev {{ client_test_ifaces[item.0 % (client_test_ifaces|length)] }}; true
+      with_indexed_items: "{{ server_addresses }}"
+      tags:
+        - "skip_ansible_lint"
+
+
+- hosts: servers
+  gather_facts: false
+  tasks:
+    - name: "Prepare pre-os-stats"
+      set_fact:
+        os_stats_archive: "{{ runlogdir.path }}/VMSTAT/osstats-post-redis-{{ hostvars['localhost'].exec_stamp }}.tar.gz"
+
+    - include_tasks: "include/get-os-stats.yml"
+
+    - name: "Remove auxiliary services"
+      docker_container:
+        name: "{{ item }}"
+        force_kill: true
+        state: "absent"
+      with_items:
+        - "node-exporter"
+
+    - name: "Send results to client"
+      synchronize:
+        src: "{{ runlogdir.path }}/{{ item }}"
+        dest: "{{ runlogdir.path }}"
+        mode: pull
+      with_items:
+        - "Results"
+        - "VMSTAT"
+      when: s3_endpoint is not defined
+
+
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: "Send results to s3 bucket"
+      s3_sync:
+        aws_access_key: "{{ s3_access_key }}"
+        aws_secret_key: "{{ s3_secret_key }}"
+        bucket: "{{ s3_bucket }}"
+        ec2_url: "{{ s3_endpoint }}"
+        file_root: "{{ runlogdir.path }}"
+        key_prefix: "{{ testcase_name }}/{{ log_dir_structure }}"
+        region: "{{ s3_region }}"
+      when: s3_endpoint is defined
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

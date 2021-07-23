@@ -1,0 +1,51 @@
+#cloud-config
+---
+write_files:
+  - path: /etc/ansible/hosts
+    content: |
+      localhost ansible_connection=local
+  - path: /etc/yum.repos.d/docker-ce.repo
+    content: |
+      [docker-ce-stable]
+      name=Docker CE Stable - $basearch
+      baseurl=https://download.docker.com/linux/fedora/$releasever/$basearch/stable
+      enabled=1
+      gpgcheck=1
+      gpgkey=https://download.docker.com/linux/fedora/gpg
+bootcmd:
+  - '[ -d /lib/systemd/system ] && export SYSTEMDCFG=/lib/systemd/system'
+  - '[ -d /usr/lib/systemd/system ] && export SYSTEMDCFG=/usr/lib/systemd/system'
+  - '[ -f $SYSTEMDCFG/chronyd.service ] && [ -f $SYSTEMDCFG/ntpd.service ] && systemctl disable ntpd && systemctl stop ntpd'
+  - '[ -f $SYSTEMDCFG/chronyd.service ] && [ -f $SYSTEMDCFG/ntp.service ] && systemctl disable ntp && systemctl stop ntp'
+  - echo 0 >/proc/sys/kernel/panic
+  - chmod 0755 /usr/bin/growpart
+  - chmod 0755 /opt/cloud-init/bin/*
+  - chmod 0755 /etc/dhcp/dhclient.d/hostname.sh
+  - chmod 0755 /etc/networkd-dispatcher/routable.d/hostname.sh
+runcmd:
+  - sed -ie 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+  - '[ -f /root/configdrive-version.txt ] && cat /root/configdrive-version.txt >>/etc/motd'
+  - chmod 0755 /root
+  - systemctl daemon-reload
+  - '[ -d /lib/systemd/system ] && export SYSTEMDCFG=/lib/systemd/system'
+  - '[ -d /usr/lib/systemd/system ] && export SYSTEMDCFG=/usr/lib/systemd/system'
+  - '[ -f $SYSTEMDCFG/systemd-networkd.service ] && systemctl restart systemd-networkd'
+  - '[ -f $SYSTEMDCFG/NetworkManager.service ] && systemctl restart NetworkManager'
+  - cloud-init-per always set_generic /opt/cloud-init/bin/timesync.sh
+  - cp /opt/cloud-init/bin/timesync.sh /var/lib/cloud/scripts/per-boot
+  - /opt/cloud-init/bin/timesetup.sh
+  - '[ -f $SYSTEMDCFG/docker.service ] && systemctl enable docker && systemctl restart docker'
+  - '[ -f $SYSTEMDCFG/ipmi.service ] && systemctl enable ipmi && systemctl start ipmi'
+  - '[ -f /root/configdrive.yml ] && chmod 644 /root/configdrive.yml'
+  - '[ -f /etc/libvirt/qemu.conf ] && sed -i "s/^#\(seccomp_sandbox\ =\ \).*$/\10/" /etc/libvirt/qemu.conf'
+  - '[ -f $SYSTEMDCFG/libvirtd.service ] && systemctl restart libvirtd'
+  - sed -ie 's/^.*ssh-rsa/ssh-rsa/' /root/.ssh/authorized_keys
+  - cloud-init-per always set_generic /opt/cloud-init/bin/runansible.sh
+timezone: UTC
+growpart:
+  mode: growpart
+  devices: ['/']
+  ignore_growroot_disabled: false
+ssh_authorized_keys:
+    - {{ sshpubkey['content'] | b64decode }}
+

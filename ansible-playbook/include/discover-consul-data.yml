@@ -1,0 +1,15 @@
+---
+- name: "Discover service instances"
+  uri:
+    url: http://{{ consul_ui_ip.address }}:8500/v1/catalog/service/redis
+  register: server_instances
+  ignore_errors: true
+  tags:
+    - "skip_ansible_lint"
+
+- name: "Register server sockets"
+  set_fact:
+    server_sockets: "{{ server_instances.json|map(attribute='NodeMeta.socket')|list|unique }}"
+  when: server_instances.json is defined
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

@@ -1,0 +1,12 @@
+shared-network {{ test_network_name }} {
+  server-name "dhcpd{{ index }}";
+  subnet {{ test_network|ipaddr('network') }} netmask {{ test_network|ipaddr('netmask') }} {
+    option broadcast-address {{ test_network|ipaddr('broadcast') }};
+    group {
+      use-host-decl-names on;
+{% for vm in vms if (vm.NodeMeta.socket|int) == (index|int) %}
+      host {{ vm.Node }} { hardware ethernet {{ vm.NodeMeta.hwaddr }}; fixed-address {{ vm.NodeMeta.ipaddr }}; option host-name "{{ vm.Node }}"; }
+{% endfor %}
+    }
+  }
+}
