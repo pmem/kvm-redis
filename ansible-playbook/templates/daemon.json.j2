@@ -1,0 +1,10 @@
+{
+    "data-root": "/var/lib/docker",
+    "insecure-registries": [
+        "{{ hostvars['localhost'].create_id }}:5000"
+    ],
+    "registry-mirrors": [
+        "http://{{ hostvars['localhost'].create_id }}:5000"
+    ],
+    "log-driver": "journald"
+}

@@ -1,0 +1,11 @@
+---
+- name: "Get os stats"
+  shell: |
+    stattmpdir=$(mktemp -d --suffix=osstats)
+    cp --parents /sys/devices/system/node/node*/*{vmstat,numastat,meminfo} "$stattmpdir"
+    cp --parents /proc/{meminfo,zoneinfo,vmstat,slabinfo,buddyinfo,pagetypeinfo,vmallocinfo} "$stattmpdir"
+    tar -C "$stattmpdir" -czf "{{ os_stats_archive }}" .
+    rm -rf "$stattmpdir"
+  when: os_stats_archive is defined
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

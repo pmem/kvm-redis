@@ -1,0 +1,486 @@
+---
+- hosts: localhost
+  tasks:
+    - name: "Generate unique run ID"
+      set_fact:
+        create_id: "{{ (99999999 | random | to_uuid | hash('md5'))[:8] }}"
+
+
+- hosts: all
+  tasks:
+    - name: "Load playbook variables"
+      include_vars: "vars.yml"
+
+    - name: "Calculate temp variables"
+      set_fact:
+        vmprops: "{{ (vmprops | default([])) + [vmprop_template] }}"
+      with_sequence: start=0 end={{ vms_number | int - 1 }}
+
+    - name: "Generate VMs settings"
+      set_fact:
+        vms: "{{ (vms | default([])) + [vm_template] }}"
+        cacheable: true
+      loop: "{{ vmprops }}"
+
+
+- hosts: servers
+  gather_facts: false
+  tasks:
+    - name: "Check if virtualization is enabled in BIOS"
+      stat:
+        path: /dev/kvm
+      register: bios_virt
+
+    - name: "Are we there yet?"
+      assert:
+        that:
+          - bios_virt.stat.exists
+        fail_msg: "Aborting run, check your BIOS setup virtualization settings"
+
+    - name: "Start libvirtd service"
+      shell: |
+        systemctl start libvirtd
+      tags:
+        - "skip_ansible_lint"
+
+    - include_tasks: "include/discover-libvirt-data.yml"
+
+    - name: "Check if all provided network interfaces are active"
+      set_fact:
+        server_test_ifaces_active: "{{ (server_test_ifaces_active | default(true)) and vars['ansible_' + item].active }}"
+      loop: "{{ test_ifname.split(',') }}"
+
+    - name: "Are we there yet?"
+      assert:
+        that:
+          - server_test_ifaces_active
+        fail_msg: "Aborting run, check your server interfaces: {{ test_ifname }}"
+
+    - name: "Tune sysfs, cpu and swap"
+      shell: |
+        echo never >/sys/kernel/mm/transparent_hugepage/enabled
+        echo never >/sys/kernel/mm/transparent_hugepage/defrag
+        cpupower frequency-set -g performance
+        swapoff -a
+      changed_when: false
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Tune /proc"
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_set: "yes"
+      with_dict:
+        vm.overcommit_memory: "1"
+        net.core.somaxconn: "65535"
+
+    - name: "Get qemu-kvm binary location"
+      shell: which qemu-kvm
+      changed_when: false
+      tags:
+        - "skip_ansible_lint"
+      register: qemu_kvm_absolute_path
+
+    - name: "Prepare working directory"
+      file:
+        path: "{{ workdir }}/dhcpd{{ index }}"
+        state: "directory"
+        mode: '0755'
+      loop: "{{ test_ifname.split(',') }}"
+      loop_control:
+        index_var: index
+
+    - name: "Create dhcpd server config"
+      template:
+        src: "dhcpd.conf.j2"
+        dest: "{{ workdir }}/dhcpd{{ index }}/dhcpd.conf"
+        mode: '0755'
+      loop: "{{ test_ifname.split(',') }}"
+      loop_control:
+        index_var: index
+
+    - name: "Set up auxiliary macvtap interface"
+      shell: |
+        ip li add link {{ item }} name dhcp{{ index }} type macvtap mode bridge
+        ip ad add {{ test_network | ipsubnet(24, index) | ipaddr(1) }} dev dhcp{{ index }}
+        ip li set dhcp{{ index }} up
+      loop: "{{ test_ifname.split(',') }}"
+      loop_control:
+        index_var: index
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Re-read facts"
+      setup:
+
+    - name: "Set up dhcpd server(s)"
+      docker_container:
+        name: "dhcpd-{{ index }}"
+        image: "networkboot/dhcpd"
+        command: "dhcp{{ index }}"
+        auto_remove: true
+        init: true
+        network_mode: "host"
+        volumes:
+          - "{{ workdir }}/dhcpd{{ index }}:/data"
+      loop: "{{ test_ifname.split(',') }}"
+      loop_control:
+        index_var: index
+
+    - name: "Destroy testcase nat network"
+      virt_net:
+        name: "{{ item }}"
+        state: "absent"
+      loop: "{{ libvirt.nets }}"
+      when: item is search(testcase_name)
+
+    - name: "Define testcase network"
+      virt_net:
+        name: "{{ nat_network_name }}"
+        command: "define"
+        xml: "{{ lookup('template', 'network.xml.j2') }}"
+
+    - name: "Run testcase network"
+      virt_net:
+        name: "{{ nat_network_name }}"
+        state: "active"
+
+    - block:
+        - name: "Set up consul server"
+          docker_container:
+            name: "consul-test"
+            image: "{{ consul_image }}"
+            command: "agent -server -bootstrap-expect=1"
+            env:
+              CONSUL_LOCAL_CONFIG: "{{ consul_server_cfg | to_json }}"
+              CONSUL_CLIENT_INTERFACE: "{{ 'dhcp0' }}"
+              CONSUL_BIND_INTERFACE: "{{ 'dhcp0' }}"
+            auto_remove: true
+            network_mode: "host"
+
+        - name: "Set up consul UI"
+          docker_container:
+            name: "consul-test-ui"
+            image: "{{ consul_image }}"
+            command: "agent -ui -node=consul-test-ui -retry-join={{ test_network | ipaddr('network') | ipmath(1) }}"
+            env:
+              CONSUL_LOCAL_CONFIG: "{{ consul_ui_cfg | to_json }}"
+              CONSUL_CLIENT_INTERFACE: "{{ ansible_default_ipv4.interface }}"
+              CONSUL_BIND_INTERFACE: "{{ ansible_default_ipv4.interface }}"
+            auto_remove: true
+            network_mode: "host"
+
+        - name: "Set up docker registry"
+          docker_container:
+            name: "docker-registry"
+            image: "{{ registry_image }}"
+            env:
+              REGISTRY_PROXY_REMOTEURL: "https://registry-1.docker.io"
+              HTTP_PROXY: "{{ http_proxy }}"
+              HTTPS_PROXY: "{{ https_proxy }}"
+              NO_PROXY: "{{ no_proxy }}"
+              no_proxy: "{{ no_proxy }}"
+            ports:
+              - "5000:5000"
+            auto_remove: true
+            network_mode: "host"
+
+        - name: "Create runtime ssh keypair"
+          command: ssh-keygen -q -t rsa -f "{{ workdir }}/sshkey" -C "" -N ""
+          args:
+            creates: "{{ workdir }}/sshkey"
+
+        - name: "Read ssh pubkey"
+          slurp:
+            src: "{{ workdir }}/sshkey.pub"
+          register: sshpubkey
+
+        - name: "Inject runtime pubkey into configdrive"
+          set_fact:
+            ssh_public_key_type: "{{ (sshpubkey['content'] | b64decode).split(' ')[0] }}"
+            ssh_public_key: "{{ (sshpubkey['content'] | b64decode).split(' ')[1] }}"
+
+        - name: "Prepare configdrive directory"
+          file:
+            path: "{{ workdir }}/configdrive/openstack/latest/"
+            state: "directory"
+            mode: '0755'
+
+        - name: "Create cloud-init files"
+          template:
+            src: "{{ item.src }}"
+            dest: "{{ workdir }}/configdrive/openstack/latest/{{ item.dest }}"
+            mode: '0755'
+          with_items:
+            - {src: "meta_data.json.j2", dest: "meta_data.json"}
+            - {src: "user_data.j2", dest: "user_data"}
+
+        - name: "Download ssh private key"
+          fetch:
+            src: "{{ workdir }}/sshkey"
+            flat: true
+            dest: "/tmp/{{ testcase_name }}-sshkey"
+          register: sshkey
+
+        - name: "Set proper mode of ssh private key"
+          file:
+            path: "{{ sshkey.dest }}"
+            mode: '0600'
+          delegate_to: localhost
+
+        - name: "Create configdrive iso"
+          shell: mkisofs -quiet -R -V config-2 -o - {{ workdir }}/configdrive/ |gzip | base64 >{{ workdir }}/{{ working_configdrive }}
+
+      when: "('dhcp0' in ansible_interfaces)"
+
+    - name: "Clean working directory"
+      file:
+        path: "{{ item.NodeMeta.run_dir }}"
+        state: "absent"
+      loop: "{{ vms }}"
+      when: item.Node not in libvirt.vms_running
+
+    - name: "Prepare instance directories"
+      file:
+        path: "{{ item.NodeMeta.run_dir }}"
+        state: "directory"
+        mode: '0755'
+      loop: "{{ vms }}"
+
+    - name: "Download vm base disk image"
+      get_url:
+        url: "{{ image_url }}"
+        dest: "{{ working_base_image }}"
+      environment: "{{ proxy_env }}"
+
+    - block:
+        - name: "Copy configrive"
+          copy:
+            src: "{{ workdir }}/{{ working_configdrive }}"
+            dest: "{{ item.NodeMeta.run_dir }}/{{ working_configdrive }}"
+            mode: '0755'
+            force: true
+            remote_src: true
+          loop: "{{ vms }}"
+
+        - name: "Uncompress vm configdrive image"
+          shell: base64 -d {{ item.NodeMeta.run_dir }}/{{ working_configdrive }} |gunzip >{{ item.NodeMeta.run_dir }}/{{ working_configdrive_iso }}
+          loop: "{{ vms }}"
+
+        - name: "Create vm working images"
+          shell: qemu-img create -b {{ working_base_image }} -f qcow2 {{ item.NodeMeta.run_dir }}/image.qcow2
+          args:
+            creates: "{{ item.NodeMeta.run_dir }}//image.qcow2"
+          tags:
+            - "skip_ansible_lint"
+          loop: "{{ vms }}"
+
+      when: item.Node not in libvirt.vms_running
+
+    - name: "Undefine testcase vms"
+      virt:
+        name: "{{ item }}"
+        command: "undefine"
+      loop: "{{ libvirt.vms }}"
+      when: item is search(testcase_name)
+            and item not in libvirt.vms_running
+
+    - name: "Define testcase vms"
+      virt:
+        name: "{{ item.Node }}"
+        command: "define"
+        xml: "{{ lookup('template', 'domain.xml.j2' ) }}"
+      loop: "{{ vms }}"
+
+    - name: "Run testcase vms"
+      virt:
+        name: "{{ item.Node }}"
+        state: "running"
+      loop: "{{ vms }}"
+
+    - name: "Add testcase vms to inventory"
+      add_host:
+        host: "{{ item.NodeMeta.ipaddr }}"
+        ansible_ssh_private_key_file: "{{ sshkey.dest }}"
+        ansible_user: "root"
+        group: "vms"
+        NodeMeta: "{{ item.NodeMeta }}"
+      loop: "{{ vms }}"
+
+    - name: "Wait for VMs"
+      pause:
+        seconds: 120
+
+    - name: "Wait for vm SSH TCP port"
+      wait_for:
+        port: "22"
+        host: "{{ item.NodeMeta.ipaddr_nat }}"
+      loop: "{{ vms }}"
+
+
+- hosts: clients
+  gather_facts: false
+  tasks:
+    - name: "Set fake consul facts, as we know them during create phase"
+      set_fact:
+        server_instances:
+          json: >-
+            "{{ ((server_instances | default({}))['json'] | default([])) + [{'Address': item['NodeMeta']['ipaddr'],
+             'NodeMeta': {'hwaddr': item['NodeMeta']['hwaddr'],
+             'nic': item['NodeMeta']['nic'] }}] }}"
+      loop: "{{ vms }}"
+      tags:
+        - "skip_ansible_lint"
+
+    - include_tasks: "include/discover-client-nics.yml"
+
+    - name: "Clean up fake facts"
+      set_fact:
+        server_instances:
+
+    - name: "Create client IP addresses"
+      shell: |
+        ip addr add {{ (item.1~'/24') | ipaddr('network') | ipmath(2) }}/24 dev {{ client_test_ifaces[item.0 % (client_test_ifaces | length)] }}; true
+      with_indexed_items: "{{ server_addresses }}"
+      tags:
+        - "skip_ansible_lint"
+
+
+- hosts: vms
+  gather_facts: false
+  tasks:
+    - name: "Load playbook variables"
+      include_vars: "vars.yml"
+
+    - name: "Check if vms are accessible"
+      wait_for_connection:
+
+    - name: "Cheat on dns to save on noproxy rearrangement"
+      lineinfile:
+        path: "/etc/hosts"
+        line: "{{ test_network | ipaddr('network') | ipmath(1) }}   {{ hostvars['localhost'].create_id }}"
+
+    - name: "Install system packages"
+      dnf:
+        name: "{{ system_packages }}"
+        state: "present"
+        update_cache: false
+      environment: "{{ proxy_env }}"
+
+    - name: "Install required python packages"
+      pip:
+        name: "{{ python_packages }}"
+        extra_args: --disable-pip-version-check
+      environment: "{{ proxy_env }}"
+      become: true
+
+    - name: "Disable cgroups v2"
+      shell: |
+        grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Reboot vm"
+      reboot:
+
+    - name: "Start docker"
+      service:
+        name: docker
+        enabled: true
+        state: "started"
+
+    - name: "Create docker config"
+      template:
+        src: "daemon.json.j2"
+        dest: "/etc/docker/daemon.json"
+        mode: '0755'
+
+    - name: "Create redis server config"
+      template:
+        src: "redis.conf.j2"
+        dest: "/etc/redis.conf"
+        mode: '0755'
+
+    - name: "Tune OS for redis"
+      shell: |
+        echo 0 >/proc/sys/kernel/panic
+        swapoff -a
+        sysctl vm.overcommit_memory=1
+        sysctl net.core.somaxconn=65535
+        echo never >/sys/kernel/mm/transparent_hugepage/enabled
+        echo never >/sys/kernel/mm/transparent_hugepage/defrag
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Restart docker daemon"
+      service:
+        name: "docker"
+        state: "restarted"
+
+    - name: "Run redis server"
+      docker_container:
+        command: "redis-server /redis.conf"
+        image: "{{ redis_image }}"
+        name: "redis-server"
+        network_mode: "host"
+        restart_policy: "on-failure"
+        sysctls:
+          net.core.somaxconn: 65535
+        volumes: /etc/redis.conf:/redis.conf
+
+    # because ansible cannot into templated integers https://github.com/ansible/ansible/issues/30366
+    - name: "Run consul agent"
+      docker_container:
+        command: "agent"
+        env:
+          CONSUL_LOCAL_CONFIG: "{{ consul_agent_cfg | from_yaml | to_json }}"
+        image: "{{ consul_image }}"
+        name: "consul-agent"
+        network_mode: "host"
+        restart_policy: "on-failure"
+        volumes: /root:/root
+
+
+- hosts: clients
+  gather_facts: false
+  tasks:
+    - name: "Wait for vm redis TCP port"
+      wait_for:
+        port: "{{ item.NodeMeta.redis_port }}"
+        host: "{{ item.NodeMeta.ipaddr }}"
+      loop: "{{ vms }}"
+
+    - name: "Wait for vm redis server readiness"
+      docker_container:
+        name: "redis-test"
+        image: "redis"
+        command: "redis-cli -h {{ item.NodeMeta.ipaddr }} PING"
+        detach: false
+        network_mode: "host"
+      register: redis_response
+      retries: 10
+      until: redis_response.ansible_facts.docker_container.Output is search("PONG")
+      changed_when: false
+      loop: "{{ vms }}"
+
+    - name: "Clean up readiness container"
+      docker_container:
+        name: "redis-test"
+        state: "absent"
+
+    - include_tasks: "include/discover-consul-data.yml"
+
+    - name: "Have all vm consul agents registered?"
+      assert:
+        that:
+          - server_instances.json | length == vms | length
+
+    - name: "Delete client IP addresses"
+      shell: |
+        ip addr del {{ (item.1~'/24') | ipaddr('network') | ipmath(2) }}/24 dev {{ client_test_ifaces[item.0 % (client_test_ifaces | length)] }}; true
+      with_indexed_items: "{{ server_addresses }}"
+      tags:
+        - "skip_ansible_lint"
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

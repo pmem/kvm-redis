@@ -1,0 +1,63 @@
+---
+- name: "Get NUMA nodes info"
+  shell: |
+    lscpu |awk '/NUMA node\(/{print $3}'
+  register: numanodes
+
+- name: "Get NUMA cpu info"
+  shell: |
+    cat /sys/devices/system/node/node{{ item }}/cpulist
+  with_sequence: start=0 end={{ numanodes.stdout|int - 1 }}
+  register: numacpus
+  tags:
+    - "skip_ansible_lint"
+
+- name: "Get docker cpuset.cpus default"
+  shell: |
+    cat /sys/fs/cgroup/cpuset/docker/cpuset.cpus
+  register: cpuset_cpus_value
+  tags:
+    - "skip_ansible_lint"
+
+- name: "Get docker cpuset.mems default"
+  shell: |
+    cat /sys/fs/cgroup/cpuset/docker/cpuset.mems
+  register: cpuset_mems_value
+  tags:
+    - "skip_ansible_lint"
+
+- name: "Register cpuset defaults"
+  set_fact:
+    cpuset_cpus_default: "{{ cpuset_cpus_value.stdout }}"
+    cpuset_mems_default: "{{ cpuset_mems_value.stdout }}"
+
+- name: "Get ipaddr outgoing NIC info"
+  shell: |
+    ip ro get {{ item.Address }} |gawk 'match($0, /dev ([a-z0-9]*)/, a){print a[1]}'
+  loop: "{{ server_instances.json }}"
+  register: ipoutnics
+  tags:
+    - "skip_ansible_lint"
+  when: server_instances.json is defined
+
+- name: "Calculate NIC names"
+  set_fact:
+    nicnames: "{{ dict(ipoutnics.results|map(attribute='item.Address')|zip(ipoutnics.results|map(attribute='stdout'))) | default({}) }}"
+  when: ipoutnics is defined
+
+- name: "Get NIC NUMA info"
+  shell: |
+    cat /sys/class/net/{{ item.value }}/device/numa_node
+  with_dict: "{{ nicnames }}"
+  register: nicnuma
+  tags:
+    - "skip_ansible_lint"
+  when: nicnames is defined
+
+- name: "Get ipaddr NUMA info"
+  set_fact:
+    ipaddrnuma: "{{ dict(nicnuma.results|map(attribute='item.key')|zip(nicnuma.results|map(attribute='stdout'))) | default({}) }}"
+  when: nicnuma is defined
+
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible
