@@ -1,3 +1,7 @@
+
+[//]: # (SPDX-License-Identifier: BSD-3-Clause)
+[//]: # (Copyright 2021, Intel Corporation)
+
 # Redis on KVM testcase
 
 In this readme, you will find out how to run a memtier benchmark on a cluster of KVM-hosted Redis servers. 
