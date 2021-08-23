@@ -1,4 +1,7 @@
 ---
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2021, Intel Corporation
+#
 - name: "Get NUMA nodes info"
   shell: |
     lscpu |awk '/NUMA node\(/{print $3}'

@@ -1,4 +1,7 @@
 ---
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2021, Intel Corporation
+#
 - name: "Discover all vms"
   virt:
     command: "list_vms"
