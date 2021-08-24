@@ -1,3 +1,6 @@
+[//]: # (SPDX-License-Identifier: BSD-3-Clause)
+[//]: # (Copyright 2021, Intel Corporation)
+
 # Redis on KVM testcase
 
 In this readme, you will find out how to run a memtier benchmark on a cluster of KVM-hosted Redis servers. 
@@ -54,9 +57,9 @@ Get ip addresses of your 40GB NICs installed in **DB server** machine. You can d
 
 When you have completed all the prerequisite steps, it is time to run the benchmark. You will do it by following the steps below:  
 
-1. Clone the __kvm-redis__  repo to your local machine
+1. Clone the __benchmarking__  repo to your local machine
 
-2. Change the directory to kvm-redis by running the command __cd kvm-redis__ 
+2. Change the directory to benchmarking by running the command __cd benchmarking__
 
 3. Create an __inventory__ file, copy the content of _inventory.example_, and replace the example hostnames with your own client and server hostnames or IPs
 
