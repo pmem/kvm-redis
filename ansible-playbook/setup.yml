@@ -1,7 +1,7 @@
----
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2021, Intel Corporation
 #
+---
 # prepares the OS layer for testcase run
 # usually needs to be only run once
 #
