@@ -1,7 +1,7 @@
----
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2021, Intel Corporation
 #
+---
 - name: "Get os stats"
   shell: |
     stattmpdir=$(mktemp -d --suffix=osstats)

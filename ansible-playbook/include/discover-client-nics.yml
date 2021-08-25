@@ -1,7 +1,7 @@
----
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2021, Intel Corporation
 #
+---
 - name: "Calculate variables"
   set_fact:
     server_ips: "{{ dict(server_instances.json|map(attribute='NodeMeta.nic')|zip(server_instances.json|map(attribute='Address'))) }}"

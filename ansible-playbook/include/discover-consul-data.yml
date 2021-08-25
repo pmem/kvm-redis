@@ -1,7 +1,7 @@
----
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2021, Intel Corporation
 #
+---
 - name: "Discover service instances"
   uri:
     url: http://{{ consul_ui_ip.address }}:8500/v1/catalog/service/redis
