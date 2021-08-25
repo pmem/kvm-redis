@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2021, Intel Corporation
+#
 ---
 s3_access_key_default: "my_s3_access_key"
 s3_bucket_default: "my_s3_bucket"
