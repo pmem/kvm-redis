@@ -187,7 +187,6 @@
             ports:
               - "5000:5000"
             auto_remove: true
-            network_mode: "host"
 
         - name: "Create runtime ssh keypair"
           command: ssh-keygen -q -t rsa -f "{{ workdir }}/sshkey" -C "" -N ""

@@ -220,13 +220,13 @@
         echo "Total throughput for {{ server_instances.json|length }} VMs" >> benchmark_results_core_metrics.txt
         for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Totals | awk '{print $2}'); do echo $i; done | paste -sd+ | /usr/bin/bc >> benchmark_results_core_metrics.txt
         echo "99.99 GET latency - best score:" >> benchmark_results_core_metrics.txt
-        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $9}'); do echo $i; done | sort --key 2 --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
+        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $9}'); do echo $i; done | sort --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
         echo "99.99 GET latency - average:" >> benchmark_results_core_metrics.txt
         for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $9}'); do echo $i; done | paste -sd+ | /usr/bin/bc | awk '{ total += $1} END { print total/{{ server_instances.json|length }} }' >> benchmark_results_core_metrics.txt
         echo "99.98 GET latency - best score:" >> benchmark_results_core_metrics.txt
-        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $8}'); do echo $i; done | sort --key 2 --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
+        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $8}'); do echo $i; done | sort --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
         echo "99.97 GET latency - best score:" >> benchmark_results_core_metrics.txt
-        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $7}'); do echo $i; done | sort --key 2 --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
+        for i in $(grep '{{ what_to_grep }}' -A7 memtier-benchmark-test-*.txt | grep Gets | awk '{print $7}'); do echo $i; done | sort --numeric-sort | head -1 | awk '{print $0}' >> benchmark_results_core_metrics.txt
       args:
         chdir: "{{ runlogdir.path }}/Results"
       tags:

@@ -1,6 +1,3 @@
-# SPDX-License-Identifier: BSD-3-Clause
-# Copyright 2021, Intel Corporation
-#
 shared-network {{ test_network_name }} {
   server-name "dhcpd{{ index }}";
   subnet {{ test_network|ipaddr('network') }} netmask {{ test_network|ipaddr('netmask') }} {
