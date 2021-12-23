@@ -1,4 +1,4 @@
-# Contributing to benchmarking
+# Contributing to kvm-redis
 
 - [Opening New Issues](#opening-new-issues)
 - [Code Style](#code-style)
@@ -7,7 +7,7 @@
 
 # Opening New Issues
 
-Please log bugs or suggestions as [GitHub issues](https://github.com/pmem/benchmarking/issues).
+Please log bugs or suggestions as [GitHub issues](https://github.com/pmem/kvm-redis/issues).
 Details such as OS and other components version are always appreciated.
 
 # Code Style
@@ -19,11 +19,11 @@ Details such as OS and other components version are always appreciated.
 
 # Submitting Pull Requests
 
-We take outside code contributions to `benchmarking` through GitHub pull requests.
+We take outside code contributions to `kvm-redis` through GitHub pull requests.
 
 **NOTE: If you do decide to implement code changes and contribute them,
 please make sure you agree your contribution can be made available under the
-[BSD-style License used for benchmarking](LICENSE).**
+[BSD-style License used for kvm-redis](LICENSE).**
 
 **NOTE: Submitting your changes also means that you certify the following:**
 
@@ -71,7 +71,7 @@ To build and submit documentation as an automatically generated pull request,
 the repository has to be properly configured.
 
 * [Personal access token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token) for Github account has to be generated.
-  * Such personal access token has to be set in benchmarking repository's
+  * Such personal access token has to be set in kvm-redis repository's
   [secrets](https://docs.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets)
   as `DOC_UPDATE_GITHUB_TOKEN` variable.
 

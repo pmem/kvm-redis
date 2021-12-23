@@ -1,12 +1,12 @@
-name: benchmarking
+name: kvm-redis
 on:  [push, pull_request]
 
 jobs:
   linux:
-    name: benchmarking
+    name: kvm-redis
     runs-on: ubuntu-latest
     env:
-      HOST_WORKDIR:   /home/runner/work/benchmarking/benchmarking
+      HOST_WORKDIR:   /home/runner/work/kvm-redis/kvm-redis
       LICENSE_TAG:    BSD-3-Clause
     steps:
       - name: Checkout code

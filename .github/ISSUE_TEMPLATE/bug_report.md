@@ -1,11 +1,11 @@
 ---
 name: Bug report
-about: Did you find a bug in benchmarking? Please let us know.
+about: Did you find a bug in kvm-redis? Please let us know.
 labels: "Type: Bug"
 ---
 <!--
 Before creating new issue, ensure that similar issue wasn't already created
-  * Search: https://github.com/pmem/benchmarking/issues
+  * Search: https://github.com/pmem/kvm-redis/issues
 
 Note that if you do not provide enough information to reproduce the issue, we may not be able to take action on your report.
 Remember this is just a minimal template. You can extend it with data you think may be useful.
@@ -15,7 +15,7 @@ Remember this is just a minimal template. You can extend it with data you think 
 
 ## Environment Information
 
-- benchmarking version(s):                                           <!-- fill this out -->
+- kvm-redis version(s):                                              <!-- fill this out -->
 - redis version(s):                                                  <!-- fill this out -->
 - docker version(s):                                                 <!-- fill this out -->
 - ansible version(s):                                                <!-- fill this out -->
