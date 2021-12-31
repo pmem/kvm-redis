@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2021, Intel Corporation
+#
+---
+- hosts: all
+
+- hosts: clients
+  gather_facts: false
+  pre_tasks:
+    - name: "Load playbook variables"
+      include_vars: "vars.yml"
+
+    - include_tasks: "include/discover-consul-data.yml"
+
+    - include_tasks: "include/discover-client-nics.yml"
+
+    - name: "Create client IP addresses"
+      shell: |
+        ip addr add {{ (item.1~'/24')|ipaddr('network')|ipmath(2) }}/24 dev {{ client_test_ifaces[item.0 % (client_test_ifaces|length)] }}; true
+      with_indexed_items: "{{ server_addresses }}"
+      tags:
+        - "skip_ansible_lint"
+
+  tasks:
+    - name: "Create log dir"
+      file:
+        path: "/tmp/populatedb"
+        state: "directory"
+      become: true
+      register: runlogdir
+      tags:
+        - "skip_ansible_lint"
+
+    - name: "Run memtier_benchmark container & populate redis DBs"
+      docker_container:
+        name: "memtier-benchmark-populate-{{ item.Node }}"
+        image: "{{ client_image }}"
+        command: >
+          --ratio={{ ratio_populate }}
+          --data-size={{ data_size }}
+          --requests={{ requests }}
+          --key-pattern={{ key_pattern_populate }}
+          --key-minimum={{ key_minimum }}
+          --key-maximum={{ key_maximum }}
+          --threads={{ threads }}
+          --pipeline={{ pipelines }}
+          --clients={{ clients }}
+          --server={{ item.Address }}
+          --port={{ item.ServicePort }}
+          --hide-histogram
+          --out-file /log/populate-{{ item.Node }}.txt
+        auto_remove: true
+        network_mode: "host"
+        volumes:
+          - "{{ runlogdir.path }}:/log"
+      with_items: "{{ server_instances.json }}"
+
+    - name: "Wait for memtier_benchmark to finish"
+      shell: |
+        docker ps --format {%raw%}"{{.Names}}"{%endraw%} -f ancestor={{ client_image }} |wc -l
+      args:
+        warn: false
+      tags:
+        - "skip_ansible_lint"
+      register: client_running
+      until: client_running.stdout|int == 0
+      retries: 10000
+      delay: 10
+
+  post_tasks:
+    - name: "Delete client IP addresses"
+      shell: |
+        ip addr del {{ (item.1~'/24')|ipaddr('network')|ipmath(2) }}/24 dev {{ client_test_ifaces[item.0 % (client_test_ifaces|length)] }}; true
+      with_indexed_items: "{{ server_addresses }}"
+      tags:
+        - "skip_ansible_lint"
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

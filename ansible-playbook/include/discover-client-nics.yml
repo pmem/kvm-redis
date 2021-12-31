@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2021, Intel Corporation
+#
+---
+- name: "Calculate variables"
+  set_fact:
+    server_ips: "{{ dict(server_instances.json|map(attribute='NodeMeta.nic')|zip(server_instances.json|map(attribute='Address'))) }}"
+    server_macs: "{{ dict(server_instances.json|map(attribute='NodeMeta.nic')|zip(server_instances.json|map(attribute='NodeMeta.hwaddr'))) }}"
+
+- name: "Calculate variables"
+  set_fact:
+    server_interfaces: "{{ server_interfaces|default([]) + [{'nic':item, 'ipaddr':server_ips[item], 'mac':server_macs[item]}] }}"
+  with_items: "{{ server_ips.keys()|list }}"
+
+- name: "Tune server arp for interface discovery"
+  shell: sysctl -w "{{ item.key }}={{ item.value }}"
+  delegate_to: "{{ groups['servers'][0] }}"
+  tags:
+    - "skip_ansible_lint"
+  with_dict:
+    net.ipv4.conf.all.arp_announce: 1
+    net.ipv4.conf.all.arp_ignore: 2
+  become: true
+
+- name: "Discover client test network interfaces"
+  shell: |
+    for nic in $(ls -1 /sys/class/net/); do
+    arping -D -f -c2 -I $nic {{ item.ipaddr }} |grep -qi {{ item.mac }} && echo $nic;
+    done; true
+  ignore_errors: true
+  register: client_interfaces_raw
+  tags:
+    - "skip_ansible_lint"
+  with_items: "{{ server_interfaces }}"
+
+- name: "Restore server arp settings"
+  shell: sysctl -w "{{ item.key }}={{ item.value }}"
+  delegate_to: "{{ groups['servers'][0] }}"
+  tags:
+    - "skip_ansible_lint"
+  with_dict:
+    net.ipv4.conf.all.arp_announce: 0
+    net.ipv4.conf.all.arp_ignore: 0
+  become: true
+
+- name: "Calculate variables"
+  set_fact:
+    server_addresses: "{{ server_interfaces|map(attribute='ipaddr')|list }}"
+    client_test_ifaces: "{{ client_interfaces_raw.results|sum(attribute='stdout_lines', start=[])|sort|unique }}"
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

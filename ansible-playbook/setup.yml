@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2021, Intel Corporation
+#
+---
+# prepares the OS layer for testcase run
+# usually needs to be only run once
+#
+- hosts: all
+
+  pre_tasks:
+    - name: "Load playbook variables"
+      include_vars: "vars.yml"
+
+  tasks:
+    - name: "Install system packages"
+      package:
+        name: "{{ item }}"
+        state: "present"
+      environment: "{{ proxy_env }}"
+      with_items:
+        - python3-pip
+        - python3-libvirt
+        - python3-lxml
+        - libguestfs-tools-c
+        - libvirt
+        - qemu-kvm
+        - open-vm-tools
+        - numactl
+        - rsync
+
+    - name: "Install required python packages"
+      pip:
+        name: "{{ python_packages }}"
+        extra_args: --disable-pip-version-check
+      environment: "{{ proxy_env }}"
+      become: true
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

@@ -1,0 +1,223 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2021, Intel Corporation
+#
+---
+client_image_default: "redislabs/memtier_benchmark:edge"
+
+configdrive_default: "kvm-redis-default.iso.gz"
+
+consul_image_default: "consul:1.6.2"
+
+image_url_default: "https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/31/Cloud/x86_64/images/Fedora-Cloud-Base-31-1.9.x86_64.qcow2"
+
+logdir_default: "/opt/logs"
+
+test_tag_default: ""
+
+nat_hw_class_default: "52:54:13:00"
+nat_network_default: "192.168.0.0/23"
+
+os_mem_reserve_default: "8192"
+
+proxy_default: ""
+
+redis_image_default: "redis:6.0.9-alpine"
+redis_port_default: 6379
+
+registry_image_default: "registry:2.7.1"
+
+testcase_name_default: "kvm-redis"
+test_hw_class_default: "56:54:88:00"
+test_network_default: "10.0.88.0/23"
+
+vms_number_default: 2
+vm_addr_start_default: "100"  # no less than 10
+
+workdir_default: "/tmp/kvm-workdir"
+
+what_to_grep: "AGGREGATED"
+
+### memtier_benchmark and redis specific:
+ratio_populate_default: "1:0"
+ratio_run_default: "1:4"
+data_size_default: 1024
+requests_default: "{{ (vm_memory|int * 0.6) | int }}"
+key_pattern_populate_default: "S:S"
+key_pattern_run_default: "G:G"
+key_minimum_default: 1
+key_maximum_default: "{{ (requests|int + 1)|int }}"
+threads_default: 1
+pipelines_default: 24
+clients_default: 2
+run_count_default: 3
+percentiles_list_default: "99.9,99.97,99.98,99.99"
+
+#
+
+clients: "{{ lookup('env', 'clients') | default(clients_default, true) }}"
+client_image: "{{ lookup('env', 'client_image') | default(client_image_default, true) }}"
+configdrive: "{{ lookup('env', 'configdrive') | default(configdrive_default, true) }}"
+consul_image: "{{ lookup('env', 'consul_image') | default(consul_image_default, true) }}"
+data_size: "{{ lookup('env', 'data_size') | default(data_size_default, true) }}"
+ftp_proxy: "{{ lookup('env', 'ftp_proxy') | default(proxy_default, true) }}"
+http_proxy: "{{ lookup('env', 'http_proxy') | default(proxy_default, true) }}"
+https_proxy: "{{ lookup('env', 'https_proxy') | default(proxy_default, true) }}"
+image_url: "{{ lookup('env', 'image_url') | default(image_url_default, true) }}"
+key_maximum: "{{ lookup('env', 'key_maximum') | default(key_maximum_default, true) }}"
+key_minimum: "{{ lookup('env', 'key_minimum') | default(key_minimum_default, true) }}"
+key_pattern_populate: "{{ lookup('env', 'key_pattern_populate') | default(key_pattern_populate_default, true) }}"
+key_pattern_run: "{{ lookup('env', 'key_pattern_run') | default(key_pattern_run_default, true) }}"
+logdir: "{{ lookup('env', 'logdir') | default(logdir_default, true) }}"
+test_tag: "{{ lookup('env', 'test_tag') | default(test_tag_default, true) }}"
+nat_hw_class: "{{ lookup('env', 'nat_hw_class') | default(nat_hw_class_default, true) }}"
+nat_network: "{{ lookup('env', 'nat_network') | default(nat_network_default, true) }}"
+nat_network_name: "{{ lookup('env', 'nat_network_name') | default(testcase_name + '-nat', true) }}"
+no_proxy: "{{ lookup('env', 'no_proxy') | default('localhost,127.0.0.1', true) }}"
+os_mem_reserve: "{{ lookup('env', 'os_mem_reserve') | default(os_mem_reserve_default, true) }}"
+percentiles_list: "{{ lookup('env', 'percentiles_list') | default(percentiles_list_default, true) }}"
+pipelines: "{{ lookup('env', 'pipelines') | default(pipelines_default, true) }}"
+ratio_populate: "{{ lookup('env', 'ratio_populate') | default(ratio_populate_default, true) }}"
+ratio_run: "{{ lookup('env', 'ratio_run') | default(ratio_run_default, true) }}"
+redis_image: "{{ lookup('env', 'redis_image') | default(redis_image_default, true) }}"
+redis_port: "{{ lookup('env', 'redis_port') | default(redis_port_default, true) }}"
+registry_image: "{{ lookup('env', 'registry_image') | default(registry_image_default, true) }}"
+requests: "{{ lookup('env', 'requests') | default(requests_default, true) }}"
+run_count: "{{ lookup('env', 'run_count') | default(run_count_default, true) }}"
+run_id: "{{ lookup('env', 'run_id') }}"
+testcase_name: "{{ lookup('env', 'testcase_name') | default(testcase_name_default, true) }}"
+test_hw_class: "{{ lookup('env', 'test_hw_class') | default(test_hw_class_default, true) }}"
+test_ifname: "{{ lookup('env', 'test_ifname') }}"
+test_network: "{{ lookup('env', 'test_network') | default(test_network_default, true) }}"
+test_network_name: "{{ lookup('env', 'test_network_name') | default(testcase_name + '-test', true) }}"
+threads: "{{ lookup('env', 'threads') | default(threads_default, true) }}"
+vms_number: "{{ lookup('env', 'vms_number') | default(vms_number_default, true) }}"
+vm_addr_start: "{{ lookup('env', 'vm_addr_start') | default(vm_addr_start_default, true) }}"
+vm_memory: >-
+  "{{ (lookup('env', 'vm_memory') |
+   default(vm_memory_gib|int * 1024 * 1024, true) |
+   default((((ansible_memfree_mb - os_mem_reserve|int) / (vms_number|int) * 1024) | round ), true)) | int }}"
+vm_memory_gib: "{{ lookup('env', 'vm_memory_gib') }}"
+workdir: "{{ lookup('env', 'workdir') | default(workdir_default, true) }}"
+
+#
+system_packages:
+  - "dnf-plugins-core"
+  - "docker-ce"
+  - "containerd.io"
+  - "python3-pip"
+  - "grubby"
+
+python_packages:
+  - "docker"
+  - "netaddr"
+  - "python-consul"
+  - "openpyxl"
+  - "minio"
+  - "boto3"
+  - "botocore"
+
+consul_datacenter: "{{ testcase_name }}-{{ hostvars['localhost'].create_id }}"
+consul_ui_ip: "{{ hostvars[groups['servers'][0]].ansible_default_ipv4 }}"
+image: "{{ image_url.split('/')[-1] }}"
+server_test_ifaces: "{{ test_ifname.split(',') if test_ifname else None }}"
+working_base_image: "{{ workdir }}/{{ image | lower }}"
+working_configdrive: "{{ configdrive | urlsplit('path') | basename }}.b64"
+working_configdrive_iso: "{{ (configdrive | urlsplit('path') | basename | splitext)[0] }}"
+
+proxy_env:
+  ftp_proxy: "{{ ftp_proxy }}"
+  http_proxy: "{{ http_proxy }}"
+  https_proxy: "{{ https_proxy }}"
+  no_proxy: "{{ no_proxy }}"
+
+vmprop_template:
+  socket: "{{ ((item|int) / vms_number|int * ansible_processor_count)|round(0,'floor')|int }}"
+  core: "{{ ((item|int) % (vms_number|int / ansible_processor_count))|round(0,'floor')|int }}"
+  number: "{{ item|int }}"
+  memory: "{{ vm_memory }}"
+
+vm_template:
+  Node: "{{ testcase_name }}-{{ '%02d'|format(item.socket|int) }}{{ '%02d'|format(item.core|int) }}"
+  NodeMeta:
+    id: "{{ '%02d'|format(item.socket|int) }}{{ '%02d'|format(item.number|int) }}"
+    socket: "{{ item.socket }}"
+    core: "{{ item.core }}"
+    vcpu: >-
+      "{{ item.socket|int * ansible_processor_cores + item.core|int }},
+       {{ (ansible_processor_count * ansible_processor_cores + item.socket|int * ansible_processor_cores + item.core|int) % ansible_processor_vcpus }}"
+    nic: "{{ server_test_ifaces[item.socket|int] }}"
+    memory: "{{ item.memory }}"
+    run_dir: "{{ workdir }}/{{ testcase_name }}-{{ '%02d'|format(item.socket|int) }}{{ '%02d'|format(item.core|int) }}"
+    hwaddr: "{{ test_hw_class }}:{{ '%02x'|format(item.socket|int) }}:{{ '%02x'|format(item.core|int + vm_addr_start|int) }}"
+    ipaddr: "{{ test_network|ipsubnet(24, item.socket|int)|ipaddr(item.core|int + vm_addr_start|int)|ipaddr('address') }}"
+    hwaddr_nat: "{{ nat_hw_class }}:{{ '%02x'|format(item.socket|int) }}:{{ '%02x'|format(item.core|int + vm_addr_start|int) }}"
+    ipaddr_nat: "{{ nat_network|ipsubnet(24, item.socket|int)|ipaddr(item.core|int + vm_addr_start|int)|ipaddr('address') }}"
+    testcase_name: "{{ testcase_name }}"
+    consul_image: "{{ consul_image }}"
+    redis_image: "{{ redis_image }}"
+    redis_port: "{{ redis_port | int }}"
+
+configdrive_template:
+  redis_image: "{{ item.NodeMeta.redis_image }}"
+  redis_port: "{{ item.NodeMeta.redis_port }}"
+  consul_image: "{{ item.NodeMeta.consul_image }}"
+  testcase_name: "{{ item.NodeMeta.testcase_name }}"
+  run_dir: "{{ item.NodeMeta.run_dir }}"
+  socket: "{{ item.NodeMeta.socket }}"
+  core: "{{ item.NodeMeta.core }}"
+  vcpu: "{{ item.NodeMeta.vcpu }}"
+  nic: "{{ item.NodeMeta.nic }}"
+  ssh_public_key_type: "{{ ssh_public_key_type }}"
+  ssh_public_key: "{{ ssh_public_key }}"
+
+consul_agent_cfg: |
+  bind_addr: "{{ NodeMeta.ipaddr }}"
+  datacenter: "{{ consul_datacenter }}"
+  disable_update_check: true
+  enable_script_checks: true
+  retry_join:
+    - "{{ test_network | ipaddr('network') | ipmath(1) }}"
+  node_meta:
+    image: "{{ image }}"
+    run_dir: "{{ NodeMeta.run_dir }}"
+    socket: "{{ NodeMeta.socket }}"
+    core: "{{ NodeMeta.core }}"
+    vcpu: "{{ NodeMeta.vcpu }}"
+    memory: "{{ NodeMeta.memory }}"
+    nic: "{{ NodeMeta.nic }}"
+    hwaddr: "{{ NodeMeta.hwaddr }}"
+  checks:
+    - id: imageVersion
+      name: "Image version"
+      args:
+        - "head"
+        - "-1"
+        - "/root/image-version.txt"
+      interval: 10s
+  services:
+    - id: redis
+      name: "redis"
+      port: {{ NodeMeta.redis_port }}
+      tags:
+        - "socket{{ NodeMeta.socket }}"
+      meta:
+        redis_version: "tbd"
+      checks:
+        - id: redis_running
+          name: "redis is running"
+          service_id: "redis"
+          tcp: "localhost:{{ NodeMeta.redis_port }}"
+          interval: 10s
+
+consul_server_cfg:
+  datacenter: "{{ consul_datacenter }}"
+  server: true
+  enable_debug: true
+  disable_update_check: true
+
+consul_ui_cfg:
+  datacenter: "{{ consul_datacenter }}"
+  enable_debug: true
+  disable_update_check: true
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

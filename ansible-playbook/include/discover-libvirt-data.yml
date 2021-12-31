@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2021, Intel Corporation
+#
+---
+- name: "Discover all vms"
+  virt:
+    command: "list_vms"
+  register: disco_vms
+
+- name: "Discover running vms"
+  virt:
+    command: "list_vms"
+    state: "running"
+  register: disco_vms_running
+
+- name: "Discover running vnets"
+  virt_net:
+    command: "list_nets"
+  register: disco_nets
+
+- name: "Register discovery result"
+  set_fact:
+    libvirt:
+      vms: "{{ disco_vms.list_vms }}"
+      vms_running: "{{ disco_vms_running.list_vms }}"
+      nets: "{{ disco_nets.list_nets }}"
+
+# vi:et:sw=2 ts=2 sts=2 ft=ansible

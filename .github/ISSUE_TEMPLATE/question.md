@@ -1,6 +1,6 @@
 ---
 name: Question
-about: Do you have question regarding benchmarking? Don't hesitate to ask.
+about: Do you have question regarding kvm-redis? Don't hesitate to ask.
 labels: "Type: Question"
 ---
 # QUESTION: <!-- fill the title of question -->
@@ -11,5 +11,5 @@ labels: "Type: Question"
 
 <!--
 For questions and other non-bugs, you could use http://groups.google.com/group/pmem
-You could also chat with members of the PMDK/benchmarking team real-time on the #pmem IRC channel on OFTC
+You could also chat with members of the PMDK/kvm-redis team real-time on the #pmem IRC channel on OFTC
 -->
